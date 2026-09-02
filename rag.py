@@ -1,11 +1,16 @@
 import ollama
+from typing import TypedDict
 from chromadb import PersistentClient
-from typing import List
+
+class Material(TypedDict):
+    document: str
+    metadata: dict
+    distance: float
 
 chroma_client = PersistentClient(path="C:\\Users\\posun\\Desktop\\ml_interview_coach\\chroma_data")
 collection = chroma_client.get_collection(name="course_lessons")
 
-def search_chunks(topic: str, n_results:int = 3) -> List[dict]:
+def search_chunks(topic: str, n_results:int = 3) -> list[Material]:
     # Вычисляем ембеддинг запроса и выполняем поиск по нему, чтобы использовать везде одну модель
     query_batch = ollama.embed(
         model='qwen3-embedding:0.6b',
@@ -18,24 +23,26 @@ def search_chunks(topic: str, n_results:int = 3) -> List[dict]:
 
     # Формируем запрос к Chroma
     result = collection.query(
-        query_embeddings=query_embeddings,
-        n_results=3,
+        query_embeddings=[query_embeddings],
+        n_results=n_results,
         include = ["documents", "metadatas", "distances"]
     )
 
     # Распаковываем метаданные
-    documents = result["documents"][0]
-    metadatas = result["metadatas"][0]
-    distances = result["distances"][0]
+    documents = (result.get("documents") or [[]])[0]
+    metadatas = (result.get("metadatas") or [[]])[0]
+    distances = (result.get("distances") or [[]])[0]
 
     # Собираем инфу по чанкам воедино
-    materials = []
-
-    for doc, meta, dist in zip(documents, metadatas, distances):
-        materials.append({
-            "documents": doc,
-            "metadatas": meta,
-            "distances": dist
-        })
-
-    return materials
+    return [
+        {
+            "document": document,
+            "metadata": metadata,
+            "distance": distance
+        }
+        for document, metadata, distance in zip(
+            documents,
+            metadatas,
+            distances
+        )
+    ]

@@ -1,5 +1,5 @@
 .venv/
-__pycahce__/
+__pycache__/
 *.pyc
 .env
 chroma_data/

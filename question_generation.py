@@ -1,4 +1,23 @@
+import json
 import ollama 
+from rag import Material
+from pydantic import BaseModel, Field
+
+class QuestionPackage(BaseModel):
+    question: str = Field(
+        min_length=1,
+        description="Один вопрос для пользователя"
+    )
+    reference_answer: str = Field(
+        min_length=1,
+        description="Эталонный ответ на основе материалов"
+    )
+    key_points: list[str] = Field(
+        min_length=2,
+        max_length=50,
+        description="Краткие тезисы, которые должны пояснить ответ"
+    )
+
 
 def build_context(materials: list[dict]) -> str:
     context_parts = []
@@ -11,56 +30,64 @@ def build_context(materials: list[dict]) -> str:
 
         context_parts.append(
             f"[{fragment_type} {index}]\n"
-            f"{material['documents']}"
+            f"{material['document']}"
         )
 
     context = "\n\n---\n\n".join(context_parts)
 
     return context
 
-def generate_question(topic: str, materials: list[dict]) -> str:
+def generate_question(topic: str, materials: list[dict]) -> QuestionPackage:
+    if not materials:
+        raise ValueError("Релевантные чанки не найдены")
     context = build_context(materials)
 
+    question_schema = QuestionPackage.model_json_schema()
+
+    schema_text = json.dumps(
+        question_schema,
+        ensure_ascii=False
+    )
+
     response = ollama.chat(
-        model = 'qwen2.5:7b',
-        messages = [{
+        model="qwen3.5:9b-q4_K_M",
+        messages=[
+            {
                 "role": "system",
                 "content": (
-                    "Ты - ML-инженер и ментор "
-                    "Твоя задача - сформулировать один вопрос, непосредственно проверяющий понимание "
-                    "указанной темы.\n\n"
-                    "Правила:\n"
-                    "1. Главным предметом вопроса должна быть указанная тема.\n"
-                    "2. Основной фрагмент имеет наивысший приоритет.\n"
-                    "3. Дополнительные фрагменты используй только тогда, когда они "
-                    "непосредственно раскрывают указанную тему.\n"
-                    "4. Игнорируй сведения о соседних понятиях, даже если из них проще "
-                    "составить вопрос.\n"
-                    "5. Если тема является понятием, проверь понимание его определения, "
-                    "состава, назначения или роли.\n"
-                    "6. Вопрос должен быть понятен без исходных материалов.\n"
-                    "7. Не сообщай правильный ответ.\n"
-                    "8. Выведи только один вопрос.\n\n"
-                    "Перед выводом проверь: ожидаемый ответ кандидата должен в первую "
-                    "очередь объяснять указанную тему."
+                    "Ты — ML-инженер и ментор.\n"
+                    "Сформируй внутренний пакет для проведения интервью.\n\n"
+                    "Заполни все поля:\n"
+                    "- question: один вопрос по указанной теме;\n"
+                    "- reference_answer: эталонный ответ по материалам;\n"
+                    "- key_points: не менее двух ключевых тезисов ответа.\n\n"
+                    "Поле question должно содержать только вопрос. "
+                    "Не включай в него эталонный ответ или подсказки.\n"
+                    "Основной фрагмент имеет наивысший приоритет.\n"
+                    "Не используй знания, отсутствующие в материалах.\n"
+                    "Верни только JSON без Markdown и пояснений."
                 ),
             },
             {
-                "role" : "user",
+                "role": "user",
                 "content": (
-                    f"Тема вопроса: {topic}\n\n"
-                    f"Материалы курса: \n{context}"
+                    f"ТЕМА:\n{topic}\n\n"
+                    f"МАТЕРИАЛЫ:\n{context}\n\n"
+                    f"JSON-СХЕМА:\n{schema_text}"
                 ),
             },
         ],
-        options = {
+        format=question_schema,
+        think=False,
+        stream=False,
+        options={
             "temperature": 0,
-            "num_ctx": 8192,
+            "num_ctx": 4096,
             "num_predict": 512,
         },
-        keep_alive=0,
+        keep_alive="10m",
     )
 
-    question = response["message"]["content"]
-
-    return question
+    return QuestionPackage.model_validate_json(
+        response["message"]["content"]
+    )
