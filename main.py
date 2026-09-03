@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from rag import Material, search_chunks
 from fastapi import FastAPI, HTTPException
 from validate_answer import validate_answer
+from validate_answer import EvaluationResult
 from console_client import run_console_client
 from question_generation import QuestionPackage, generate_question
 
@@ -37,7 +38,7 @@ class UserAnswerRequest(BaseModel):
 
 class UserAnswerResponse(BaseModel):
     status: Literal["success"]
-    evaluation: dict
+    evaluation: EvaluationResult
 
 @dataclass(frozen=True)
 class InterviewSession:
@@ -103,14 +104,11 @@ def user_answer(request: UserAnswerRequest) -> UserAnswerResponse:
             detail="Сессия не найдена или сервер не запущен"
         )
 
-    topic = session.topic
-    materials = search_chunks(topic) 
 
     evaluation = validate_answer(
-        topic=session.topic,
-        question = session.question_package.question,
-        user_answer=answer,
-        materials=materials
+        question_package = session.question_package,
+        user_answer = answer,
+        materials = session.materials
     )
 
     return UserAnswerResponse(

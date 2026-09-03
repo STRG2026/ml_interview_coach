@@ -63,7 +63,6 @@ batch = ollama.embed(
 )
 
 embeddings = batch["embeddings"]
-print(embeddings)
 
 # Добавляем ембеддинги в коллецию Chroma
 # Upsert автоматически добавит новые или перезапишет старые записи

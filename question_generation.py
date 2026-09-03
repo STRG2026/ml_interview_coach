@@ -55,25 +55,25 @@ def generate_question(topic: str, materials: list[dict]) -> QuestionPackage:
             {
                 "role": "system",
                 "content": (
-                    "Ты — ML-инженер и ментор.\n"
-                    "Сформируй внутренний пакет для проведения интервью.\n\n"
-                    "Заполни все поля:\n"
-                    "- question: один вопрос по указанной теме;\n"
-                    "- reference_answer: эталонный ответ по материалам;\n"
-                    "- key_points: не менее двух ключевых тезисов ответа.\n\n"
-                    "Поле question должно содержать только вопрос. "
-                    "Не включай в него эталонный ответ или подсказки.\n"
-                    "Основной фрагмент имеет наивысший приоритет.\n"
-                    "Не используй знания, отсутствующие в материалах.\n"
-                    "Верни только JSON без Markdown и пояснений."
+                    "You are an ML engineer and mentor.\n"
+                    "Create an internal package for conducting an interview\n"
+                    "Fill in fields:\n"
+                    "- question: one question on the specified topic\n"
+                    "- reference_answer: a reference answer based on the materials\n"
+                    "- key_points: at least two key points of the answer\n"
+                    "The question fields should contain only the question\n"
+                    "Do not include a reference answer of hints in it\n"
+                    "The main fragment has the highest priority\n"
+                    "Do not use knowledge that is not present in the materials\n"
+                    "Return only JSON without Markdown and explanations\n"
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"ТЕМА:\n{topic}\n\n"
-                    f"МАТЕРИАЛЫ:\n{context}\n\n"
-                    f"JSON-СХЕМА:\n{schema_text}"
+                    f"TOPIC:\n{topic}\n\n"
+                    f"MATERIALS:\n{context}\n\n"
+                    f"JSON-SCHEMA:\n{schema_text}"
                 ),
             },
         ],
@@ -81,7 +81,7 @@ def generate_question(topic: str, materials: list[dict]) -> QuestionPackage:
         think=False,
         stream=False,
         options={
-            "temperature": 0,
+            "temperature": 0.4,
             "num_ctx": 4096,
             "num_predict": 512,
         },
