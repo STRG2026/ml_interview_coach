@@ -1,0 +1,1 @@
+invalid type: string "plt.xlim([0, 45])\nplt.ylim([0, 75])\nplt.xlabel(\"ширина\")\nplt.ylabel(\"длина\")\nplt.grid(True)\nplt.legend()\nplt.show()\n```\n\nДля приведенных данных получаются коэффициенты, близкие к следующим:\n\n$$\nw_1=0{,}05793234,\n\\qquad\nw_2=-0{,}03462720,\n\\qquad\nw_0=0{,}19121880.\n$$\n\n�c{������������

@@ -103,11 +103,14 @@ def user_answer(request: UserAnswerRequest) -> UserAnswerResponse:
             detail="Сессия не найдена или сервер не запущен"
         )
 
+    topic = session.topic
+    materials = search_chunks(topic) 
+
     evaluation = validate_answer(
         topic=session.topic,
         question = session.question_package.question,
         user_answer=answer,
-        materials=StartInterviewResponse.materials
+        materials=materials
     )
 
     return UserAnswerResponse(

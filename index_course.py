@@ -18,8 +18,7 @@ collection = chroma_client.get_or_create_collection(
 )
 
 # Массив конспектов лекций
-file_paths = [Path("data/001_chto_takoe_mashinnoe_obuchenie_obuchayushchaya_vyborka.txt"),
-              Path("data/002_postanovka_zadachi_mashinnogo_obuchenia.txt")]
+directory = Path("C:/Users/posun/Desktop/ml_interview_coach/data")
 
 # Задаём параметры сплиттера
 text_splitter = RecursiveCharacterTextSplitter(
@@ -34,19 +33,21 @@ ids = []
 documents = []
 metadatas = []
 
-for file_path in file_paths:
-    text = file_path.read_text(encoding="utf-8")
+txt_files = [f for f in directory.glob("*.txt")]
+
+for file in txt_files:
+    text = file.read_text(encoding="utf-8")
     file_chunks = text_splitter.create_documents([text]) # file_chunks - объект типа Document, у которого есть поля page_content и metadata
 
     # Извлекаем lesson_id из имени файла
-    lesson_id = file_path.stem.split("_")[0]  
+    lesson_id = file.stem.split("_")[0]  
 
     # Добавляем метаданные к чанкам
     for chunk_index, chunk in enumerate(file_chunks):
         chunk_id = f"lesson_{lesson_id}_chunk_{chunk_index:03d}"
 
         chunk_metadata = {
-            "source": file_path.name,
+            "source": file.name,
             "lesson_id": lesson_id,
             "chunk_index": chunk_index
         }
@@ -62,6 +63,7 @@ batch = ollama.embed(
 )
 
 embeddings = batch["embeddings"]
+print(embeddings)
 
 # Добавляем ембеддинги в коллецию Chroma
 # Upsert автоматически добавит новые или перезапишет старые записи
