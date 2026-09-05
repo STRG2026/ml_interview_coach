@@ -13,7 +13,7 @@ def run_console_client() -> None:
         json={
             "topic": topic,
         },
-        timeout = (5, 300),
+        timeout = (5, 600),
     )
 
     question_response.raise_for_status()

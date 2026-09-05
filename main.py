@@ -1,19 +1,23 @@
 import time
+import ollama
 import uvicorn 
 from typing import Literal
 from uuid import UUID, uuid4 
 from dataclasses import dataclass
 from threading import Lock, Thread
-from pydantic import BaseModel, Field 
 from rag import Material, search_chunks
 from fastapi import FastAPI, HTTPException
 from validate_answer import validate_answer
 from validate_answer import EvaluationResult
 from console_client import run_console_client
+from pydantic import BaseModel, Field, ValidationError
+from validate_answer import EvaluationResult, validate_answer
 from question_generation import QuestionPackage, generate_question
+from generate_reference_answer import ReferenceAnswer, generate_reference_answer
+
 
 # Создаём прилку
-app = FastAPI(title="ML Interview Coach", version="0.0.1")
+app = FastAPI(title="ML Interview Coach", version="0.0.2")
 
 # Задаём класс для начальной ручки (тема запроса пользователя)
 class StartInterviewRequest(BaseModel):
@@ -27,7 +31,6 @@ class StartInterviewResponse(BaseModel):
     status: Literal["success"]
     session_id: UUID
     question: str
-    materials: list[dict]
 
 class UserAnswerRequest(BaseModel):
     session_id: UUID
@@ -39,15 +42,21 @@ class UserAnswerRequest(BaseModel):
 class UserAnswerResponse(BaseModel):
     status: Literal["success"]
     evaluation: EvaluationResult
+    reference_answer: str
 
 @dataclass(frozen=True)
 class InterviewSession:
     topic: str
-    question_package: QuestionPackage
+    question: QuestionPackage
     materials: list[Material]
+    reference_answer: list[Material]
 
 sessions: dict[UUID, InterviewSession] = {}
 sessions_lock = Lock()
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status" : "ok"}
 
 @app.post("/start_interview", response_model=StartInterviewResponse)
 def start_interview(request: StartInterviewRequest) -> StartInterviewResponse:
@@ -57,23 +66,42 @@ def start_interview(request: StartInterviewRequest) -> StartInterviewResponse:
             status_code=422,
             detail = "Тема не может быть пустой"
         )
+    try:
+        materials = search_chunks(topic) 
+        if not materials:
+            raise HTTPException(
+                status_code=404,
+                detail = "Чанки по этой теме не найдены"
+            )
 
-    materials = search_chunks(topic) 
-    if not materials:
-        raise HTTPException(
-            status_code=404,
-            detail = "Чанки по этой теме не найдены"
+        generated_question = generate_question(
+            topic=topic,
+            materials=materials
         )
 
-    question_package = generate_question(
-        topic=topic,
-        materials=materials
-    )
+        reference_answer = generate_reference_answer(
+            question=generated_question.question,
+            materials=materials
+        )
+        
+    except ollama.ResponseError as exp:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Ollama не подготовила интервью: {exp}"
+        ) from exp
+
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=("Модель вернула вопрос или эталонный ответ в неправильном формате")
+        ) from e
+
 
     session_id = uuid4()
     session = InterviewSession(
         topic=topic,
-        question_package=question_package,
+        question=generated_question.question,
+        reference_answer=reference_answer,
         materials=materials
     )
 
@@ -83,8 +111,7 @@ def start_interview(request: StartInterviewRequest) -> StartInterviewResponse:
     return StartInterviewResponse(
         status="success",
         session_id=session_id, 
-        question=question_package.question,
-        materials=materials  
+        question=session.question
     )
 
 @app.post("/user_answer", response_model=UserAnswerResponse)
@@ -104,16 +131,30 @@ def user_answer(request: UserAnswerRequest) -> UserAnswerResponse:
             detail="Сессия не найдена или сервер не запущен"
         )
 
+    try:
+        evaluation = validate_answer(
+            question_package = session.question,
+            user_answer = answer,
+            reference_answer=session.reference_answer,
+            materials = session.materials
+        )
 
-    evaluation = validate_answer(
-        question_package = session.question_package,
-        user_answer = answer,
-        materials = session.materials
-    )
+    except ollama.ResponseError as exp:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Ollama не смогла оценить ответ {exp}"
+        ) from exp
+
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=502,
+            detail="Модель вернула оценку в неправильном формате"
+        )
 
     return UserAnswerResponse(
         status="success",
-        evaluation=evaluation
+        evaluation=evaluation,
+        reference_answer=session.reference_answer.reference_answer
     )
 
 def run_project() -> None:
