@@ -49,7 +49,7 @@ class InterviewSession:
     topic: str
     question: QuestionPackage
     materials: list[Material]
-    reference_answer: list[Material]
+    reference_answer: ReferenceAnswer
 
 sessions: dict[UUID, InterviewSession] = {}
 sessions_lock = Lock()
@@ -67,34 +67,41 @@ def start_interview(request: StartInterviewRequest) -> StartInterviewResponse:
             detail = "Тема не может быть пустой"
         )
     try:
-        materials = search_chunks(topic) 
-        if not materials:
-            raise HTTPException(
-                status_code=404,
-                detail = "Чанки по этой теме не найдены"
+        try:
+            materials = search_chunks(topic) 
+            if not materials:
+                raise HTTPException(
+                    status_code=404,
+                    detail = "Чанки по этой теме не найдены"
+                )
+
+            generated_question = generate_question(
+                topic=topic,
+                materials=materials
             )
 
-        generated_question = generate_question(
-            topic=topic,
-            materials=materials
-        )
+        except ValidationError as e:
+                raise HTTPException(
+                    status_code=502,
+                    detail=("Модель вернула вопрос или эталонный ответ в неправильном формате")
+                ) from e
+        try:
+            reference_answer = generate_reference_answer(
+                question=generated_question.question,
+                materials=materials
+            )
 
-        reference_answer = generate_reference_answer(
-            question=generated_question.question,
-            materials=materials
-        )
-        
+        except ValidationError as e:
+                raise HTTPException(
+                    status_code=502,
+                    detail=("Модель вернула вопрос или эталонный ответ в неправильном формате")
+                ) from e
+
     except ollama.ResponseError as exp:
         raise HTTPException(
             status_code=503,
             detail=f"Ollama не подготовила интервью: {exp}"
         ) from exp
-
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=("Модель вернула вопрос или эталонный ответ в неправильном формате")
-        ) from e
 
 
     session_id = uuid4()
@@ -133,7 +140,7 @@ def user_answer(request: UserAnswerRequest) -> UserAnswerResponse:
 
     try:
         evaluation = validate_answer(
-            question_package = session.question,
+            question = session.question,
             user_answer = answer,
             reference_answer=session.reference_answer,
             materials = session.materials

@@ -57,9 +57,9 @@ def generate_reference_answer(question: str, materials: list[Material]) -> Refer
             {
                 "role" : "user",
                 "content" : (
-                    f"QUESTION: {question}"
-                    f"MATERIALS: {materials}"
-                    f"JSON-SCHEMA: {schema_text}"
+                    f"QUESTION: \n{question}\n\n"
+                    f"MATERIALS: \n{materials}\n\n"
+                    f"JSON-SCHEMA: \n{schema_text}"
                 )
             }
         ],

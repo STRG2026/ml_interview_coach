@@ -44,7 +44,7 @@ def validate_answer(question: str, user_answer: str, reference_answer: Reference
     question = question.strip()
     user_answer = user_answer.strip()
 
-    if not question or user_answer or materials or reference_answer.reference_answer.strip():
+    if not question or not user_answer or not materials or not reference_answer.reference_answer.strip():
         raise ValueError("Один из параметров фунции пустой") 
 
     evaluation_schema = EvaluationDraft.model_json_schema()
@@ -89,12 +89,12 @@ def validate_answer(question: str, user_answer: str, reference_answer: Reference
         {
             "role": "user",
             "content": (
-                f"QUESTION:{question}\n"
-                f"STUDENT ANSWER: {user_answer}"
-                f"REFERENCE ANSWER: {reference_answer.reference_answer}"
-                f"REFERENCE ANSWER KEY POINTS: {json.dumps(reference_answer.key_points, ensure_ascii=False)}"
-                f"COURSE MATERIALS: {materials}"
-                f"JSON SCHEMA: {schema_text}"
+                f"QUESTION:\n{question}\n\n"
+                f"STUDENT ANSWER: \n{user_answer}\n\n"
+                f"REFERENCE ANSWER: \n{reference_answer.reference_answer}\n\n"
+                f"REFERENCE ANSWER KEY POINTS: \n{json.dumps(reference_answer.key_points, ensure_ascii=False)}\n\n"
+                f"COURSE MATERIALS: \n{materials}\n\n"
+                f"JSON SCHEMA: \n{schema_text}\n\n"
             ),
         },
     ],
