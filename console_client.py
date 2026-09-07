@@ -1,53 +1,99 @@
 import json
 import requests
+from typing import Any
 
-# Задаём базовый URL-адресс приложения
-BASE_URL = "http://127.0.0.1:8000"
+def read_non_empty(prompt: str) -> str:
+    while True:
+        value = input(prompt).strip()
+
+        if value:
+            return value
+
+        print("Значение не должно быть пустым.")
+
+
+def extract_api_error(response: requests.Response) -> str:
+    try:
+        response_data = response.json()
+    except ValueError:
+        return response.text or "Сервер не сообщил подробности ошибки"
+
+    detail = response_data.get("detail", response_data)
+
+    if isinstance(detail, str):
+        return detail
+
+    return json.dumps(
+        detail,
+        ensure_ascii=False,
+        indent=2
+    )
+
+
+def post_json(session: requests.Session, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+    response = session.post(
+            url=f"http://127.0.0.1:8000 {endpoint}",
+            json=payload,
+            timeout=(10, 600)
+        )
+
+    response_data = response.json()
+
+    return response_data
+
 
 def run_console_client() -> None:
-    # Ввод темы вопроса
-    topic = input("Введите тему вопроса: ").strip()
+    try:
+        topic = read_non_empty("Введите тему вопроса: ")
 
-    # Дергаем ручку через пост-метод
-    question_response = requests.post(
-        url=f"{BASE_URL}/start_interview",
-        json={
-            "topic": topic,
-        },
-        timeout = (5, 600),
-    )
+        with requests.Session() as session:
+            question_data = post_json(
+                session=session,
+                endpoint="/start_interview",
+                payload={
+                    "topic": topic
+                },
+            )
 
-    # Обрабатываем ответ от сервера
-    question_response.raise_for_status()
-    question_data = question_response.json()
-    session_id = question_data["session_id"]
-    question = question_data["question"]
+            session_id = question_data.get("session_id")
+            question = question_data.get("question")
 
-    print(question)
+            print(f"\nВопрос:\n{question}")
 
-    answer = input("Ваш ответ:")
+            user_answer = read_non_empty("\nВаш ответ: ")
 
-    # Опять дергаем ручку через пост-метод
-    answer_response = requests.post(
-        url=f"{BASE_URL}/user_answer",
-        json={
-            "session_id": session_id,
-            "answer": answer,
-        },
-        timeout = (10, 300),
-    )
-    
-    # Обрабатываем ответ от сервера
-    answer_response.raise_for_status()
-    answer_data = answer_response.json()
+            answer_data = post_json(
+                session=session,
+                endpoint="/user_answer",
+                payload={
+                    "session_id": session_id,
+                    "answer": user_answer,
+                }
+            )
 
-    print(
-        json.dumps(
-            answer_data["evaluation"],
-            indent=2,
-            ensure_ascii=False
-        )
-    )
+        evaluation = answer_data.get("evaluation")
+        final_feedback = answer_data.get("final_feedback")
+        reference_answer = answer_data.get("reference_answer")
+
+        score = evaluation.get("score")
+        verdict = evaluation.get("verdict")
+
+        print("\nРезультат:")
+
+        if score is not None:
+            print(f"Оценка: {score}/10")
+
+        if verdict:
+            print(f"Вердикт: {verdict}")
+
+        print(f"\nКомментарий ментора:\n{final_feedback}")
+
+        if isinstance(reference_answer, str) and reference_answer:
+            print(f"\nЭталонный ответ:\n{reference_answer}")
+
+    except (KeyboardInterrupt, EOFError):
+        print("\nПользователь остановил работу консоли")
+
 
 if __name__ == "__main__":
     run_console_client()

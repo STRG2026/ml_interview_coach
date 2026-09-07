@@ -18,206 +18,238 @@ from generate_reference_answer import ReferenceAnswer, generate_reference_answer
 
 
 # Создаём прилку
-app = FastAPI(title="ML Interview Coach", version="0.0.2")
+app = FastAPI(title="ML Interview Coach", version="0.0.3")
 
 # Задаём класс для начальной ручки (тема запроса пользователя)
-# Поля:
-# topic - тема запроса пользователя
 class StartInterviewRequest(BaseModel):
     topic: str = Field(
         min_length=1,
         max_length=200,
-        description="Тема для генерации вопроса",
+        description="Тема для генерации вопроса"
     )
 
-# Класс для ответа первой ручки
-# Поля:
-# status - просто инфо поле
-# session_id - уникальный идентификатор, под которым будет храниться контекст сессии
-# question - вопрос, сгенерированный LLM
 class StartInterviewResponse(BaseModel):
     status: Literal["success"]
     session_id: UUID
     question: str
 
-# Класс, описывающий запрос пользователя
-# Поля:
-# session_id - та же логика, что и в предыдущем классе
-# answer - поле, описывающее ответ пользователя
 class UserAnswerRequest(BaseModel):
     session_id: UUID
     answer: str = Field(
         min_length=1, 
-        max_length=5000
+        max_length=5000,
+        description="Ответ пользователя на вопрос"
     )
 
-# Класс, описывающий ответ пользователю
-# Поля:
-# stastuc - поле с информацей о статусе
-# evaluation - результат валидации запроса пользователя через LLM
-# refernce_answer - референсный ответ, генерируемый LLM
 class UserAnswerResponse(BaseModel):
     status: Literal["success"]
     evaluation: EvaluationResult
     reference_answer: str
+    final_feedback: str
 
-
-# Класс, описывающий финальный ответ, который получит пользователь
-# Поля:
-# final_result - финальный ответ, так же генерируется LLM на основе ответа от функции validate_answer
-class FinalResult(BaseModel):
-    final_result: str = Field (
-        min_length=1, 
-        max_length=5000,
-        description="Финальный ответ, который будет выведен пользователю"
-    )
-
-# Датакласс, описывающий сессию целиком
-# Поля:
-# topic - тема вопроса, задаётся пользователем
-# question - сам вопрос, генерируется LLM
-# materials - материалы, получаются из Chroma
-# reference_answer - референсный ответ, генерируется LLM
 @dataclass(frozen=True)
 class InterviewSession:
     topic: str
     question: QuestionPackage
     materials: list[Material]
-    reference_answer: ReferenceAnswer
+    reference_answer: list[Material]
 
-# Хранилизе данных сессии
 sessions: dict[UUID, InterviewSession] = {}
+# Защищаем словаь сессии
 sessions_lock = Lock()
+# Не допускаем нагрузку LLM несколькими запросами
+llm_lock = Lock()
 
-# Ручка для проверки работоспособности сервера
+def get_session(session_id: UUID) -> InterviewSession | None:
+    with sessions_lock:
+        session = sessions.get(session_id)
+
+        if session is None:
+            return None
+
+        session_age = (
+            time.monotonic() - session.created_at
+        )
+
+        if session_age > 3600:
+            sessions.pop(session_id, None)
+            return None
+
+        return session
+
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status" : "ok"}
+    return {
+        "status": "ok",
+    }
 
-# Начальная ручка, запускающая сценарий
+
 @app.post("/start_interview", response_model=StartInterviewResponse)
 def start_interview(request: StartInterviewRequest) -> StartInterviewResponse:
-    # Тема вопроса
     topic = request.topic.strip()
+
     if not topic:
         raise HTTPException(
             status_code=422,
-            detail = "Тема не может быть пустой"
+            detail="Тема не может быть пустой"
         )
+
     try:
-        try:
-            # Получаем эмбеддинги из Chroma
-            materials = search_chunks(topic) 
+        with llm_lock:
+            materials = search_chunks(topic)
+
             if not materials:
                 raise HTTPException(
                     status_code=404,
-                    detail = "Чанки по этой теме не найдены"
+                    detail=(
+                        "В материалах курса не найдено "
+                        "информации по указанной теме"
+                    )
                 )
-            
-            # Генерируем вопрос с помощью LLM 
-            generated_question = generate_question(
+
+            question_package = generate_question(
                 topic=topic,
                 materials=materials
             )
 
-        except ValidationError as e:
-                raise HTTPException(
-                    status_code=502,
-                    detail=("Модель вернула вопрос или эталонный ответ в неправильном формате")
-                ) from e
-        try:
             reference_answer = generate_reference_answer(
-                question=generated_question.question,
+                question=question_package.question,
                 materials=materials
             )
 
-        except ValidationError as e:
-                raise HTTPException(
-                    status_code=502,
-                    detail=("Модель вернула вопрос или эталонный ответ в неправильном формате")
-                ) from e
+    except HTTPException:
+        raise
 
-    except ollama.ResponseError as exp:
+    except ollama.ResponseError as error:
         raise HTTPException(
             status_code=503,
-            detail=f"Ollama не подготовила интервью: {exp}"
-        ) from exp
+            detail=(
+                "LLM не вернула данные, ошибка: "
+                f"{error}"
+            )
+        ) from error
 
+    except ConnectionError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Не удалось подключиться к Ollama, введи Ollama ps"
+            )
+        ) from error
 
-    # Сохраняем информацию сессию под уникальным ключем в хранилище
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Модель вернула вопрос или эталонный "
+                "ответ в неправильном формате"
+            )
+        ) from error
+
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=str(error)
+        ) from error
+
     session_id = uuid4()
-    session = InterviewSession(
+
+    interview_session = InterviewSession(
         topic=topic,
-        question=generated_question.question,
+        question_package=question_package,
+        materials=materials,
         reference_answer=reference_answer,
-        materials=materials
+        created_at=time.monotonic()
     )
 
     with sessions_lock:
-        sessions[session_id] = session
+        sessions[session_id] = interview_session
 
-    # Возвращаем экземпляр класса с заполненными полями
     return StartInterviewResponse(
         status="success",
-        session_id=session_id, 
-        question=session.question
+        session_id=session_id,
+        question=question_package.question
     )
 
-# Ручка, отвечающая за обработку ответа пользователя
+
 @app.post("/user_answer", response_model=UserAnswerResponse)
 def user_answer(request: UserAnswerRequest) -> UserAnswerResponse:
-    # Ответ пользователя
     answer = request.answer.strip()
+
     if not answer:
         raise HTTPException(
             status_code=422,
             detail="Ответ не может быть пустым"
         )
-    with sessions_lock:
-        session = sessions.get(request.session_id)
+
+    session = get_session(request.session_id)
 
     if session is None:
         raise HTTPException(
             status_code=404,
-            detail="Сессия не найдена или сервер не запущен"
+            detail=(
+                "Сессия не найдена или срок её действия истёк"
+            )
         )
 
     try:
-        # Вызываем функцию валидации ответа с помощью LLM
-        evaluation = validate_answer(
-            question = session.question,
-            user_answer = answer,
+        with llm_lock:
+            evaluation = validate_answer(
+            question=session.question_package.question,
+            user_answer=answer,
             reference_answer=session.reference_answer,
-            materials = session.materials
+            materials=session.materials,
         )
 
-    except ollama.ResponseError as exp:
+            # На всякий случай преобразовывем результат в EvaluationResult
+            evaluation = EvaluationResult.model_validate(evaluation)
+
+            final_feedback = generate_feedback(
+                evaluation=evaluation,
+                reference_answer=session.reference_answer
+            )
+
+    except ollama.ResponseError as error:
         raise HTTPException(
             status_code=503,
-            detail=f"Ollama не смогла оценить ответ {exp}"
-        ) from exp
+            detail=(
+                "Ollama не смогла обработать ответ: "
+                f"{error}"
+            )
+        ) from error
 
-    except ValidationError as e:
+    except ConnectionError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Не удалось подключиться к Ollama, введи Ollama ps"
+            )
+        ) from error
+
+    except ValidationError as error:
         raise HTTPException(
             status_code=502,
-            detail="Модель вернула оценку в неправильном формате"
-        )
+            detail=(
+                "Модель вернула оценку или финальный "
+                "ответ в неправильном формате"
+            )
+        ) from error
 
-    # Возвращаем экземпляр класса с заполненными полями 
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=str(error)
+        ) from error
+
     return UserAnswerResponse(
         status="success",
         evaluation=evaluation,
-        reference_answer=session.reference_answer.reference_answer
+        reference_answer=(session.reference_answer.reference_answer),
+        final_feedback=final_feedback.final_result
     )
 
-@app.post("/final_responce", response_model = FinalResult)
-def final_answer(evaluation: EvaluationResult) -> FinalResult:
-    final_answer = final_answer(evaluation)
-    return final_answer
 
-# Точка входа
 def run_project() -> None:
-    # Задаём конфигурацию проекта
     config = uvicorn.Config(
         app=app,
         host="127.0.0.1",
@@ -226,12 +258,13 @@ def run_project() -> None:
     )
 
     server = uvicorn.Server(config=config)
-    
+
     server_thread = Thread(
         target=server.run,
         name="uvicorn_server",
         daemon=True
     )
+
     server_thread.start()
 
     startup_deadline = time.monotonic() + 10
@@ -239,13 +272,16 @@ def run_project() -> None:
     while not server.started:
         if not server_thread.is_alive():
             raise RuntimeError(
-                "FastAPI не поднялся, возможно занят 8000-ый порт"
+                "FastAPI не запустился, возможно занят 8000 порт"
             )
 
         if time.monotonic() >= startup_deadline:
             server.should_exit = True
             server_thread.join(timeout=5)
-            raise TimeoutError("FastAPI не поднялся за 10 секунд")
+
+            raise TimeoutError(
+                "FastAPI не запустился за 10 секунд"
+            )
 
         time.sleep(0.05)
 
@@ -253,7 +289,13 @@ def run_project() -> None:
         run_console_client()
     finally:
         server.should_exit = True
-        server_thread.join(timeout=5)
+        server_thread.join(timeout=10)
+
+        if server_thread.is_alive():
+            print(
+                "FastAPI не успел завершиться за 10 секунд"
+            )
+
 
 if __name__ == "__main__":
     run_project()

@@ -1,0 +1,8 @@
+chromadb
+fastapi
+langchain-text-splitters
+ollama
+pydantic>=2.7
+python-dotenv
+requests
+uvicorn[standard]
