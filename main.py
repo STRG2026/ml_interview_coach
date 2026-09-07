@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from validate_answer import validate_answer
 from validate_answer import EvaluationResult
 from console_client import run_console_client
+from generate_feedback import generate_feedback
 from pydantic import BaseModel, Field, ValidationError
 from validate_answer import EvaluationResult, validate_answer
 from question_generation import QuestionPackage, generate_question
@@ -20,6 +21,8 @@ from generate_reference_answer import ReferenceAnswer, generate_reference_answer
 app = FastAPI(title="ML Interview Coach", version="0.0.2")
 
 # Задаём класс для начальной ручки (тема запроса пользователя)
+# Поля:
+# topic - тема запроса пользователя
 class StartInterviewRequest(BaseModel):
     topic: str = Field(
         min_length=1,
@@ -27,11 +30,20 @@ class StartInterviewRequest(BaseModel):
         description="Тема для генерации вопроса",
     )
 
+# Класс для ответа первой ручки
+# Поля:
+# status - просто инфо поле
+# session_id - уникальный идентификатор, под которым будет храниться контекст сессии
+# question - вопрос, сгенерированный LLM
 class StartInterviewResponse(BaseModel):
     status: Literal["success"]
     session_id: UUID
     question: str
 
+# Класс, описывающий запрос пользователя
+# Поля:
+# session_id - та же логика, что и в предыдущем классе
+# answer - поле, описывающее ответ пользователя
 class UserAnswerRequest(BaseModel):
     session_id: UUID
     answer: str = Field(
@@ -39,11 +51,33 @@ class UserAnswerRequest(BaseModel):
         max_length=5000
     )
 
+# Класс, описывающий ответ пользователю
+# Поля:
+# stastuc - поле с информацей о статусе
+# evaluation - результат валидации запроса пользователя через LLM
+# refernce_answer - референсный ответ, генерируемый LLM
 class UserAnswerResponse(BaseModel):
     status: Literal["success"]
     evaluation: EvaluationResult
     reference_answer: str
 
+
+# Класс, описывающий финальный ответ, который получит пользователь
+# Поля:
+# final_result - финальный ответ, так же генерируется LLM на основе ответа от функции validate_answer
+class FinalResult(BaseModel):
+    final_result: str = Field (
+        min_length=1, 
+        max_length=5000,
+        description="Финальный ответ, который будет выведен пользователю"
+    )
+
+# Датакласс, описывающий сессию целиком
+# Поля:
+# topic - тема вопроса, задаётся пользователем
+# question - сам вопрос, генерируется LLM
+# materials - материалы, получаются из Chroma
+# reference_answer - референсный ответ, генерируется LLM
 @dataclass(frozen=True)
 class InterviewSession:
     topic: str
@@ -51,15 +85,19 @@ class InterviewSession:
     materials: list[Material]
     reference_answer: ReferenceAnswer
 
+# Хранилизе данных сессии
 sessions: dict[UUID, InterviewSession] = {}
 sessions_lock = Lock()
 
+# Ручка для проверки работоспособности сервера
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status" : "ok"}
 
+# Начальная ручка, запускающая сценарий
 @app.post("/start_interview", response_model=StartInterviewResponse)
 def start_interview(request: StartInterviewRequest) -> StartInterviewResponse:
+    # Тема вопроса
     topic = request.topic.strip()
     if not topic:
         raise HTTPException(
@@ -68,13 +106,15 @@ def start_interview(request: StartInterviewRequest) -> StartInterviewResponse:
         )
     try:
         try:
+            # Получаем эмбеддинги из Chroma
             materials = search_chunks(topic) 
             if not materials:
                 raise HTTPException(
                     status_code=404,
                     detail = "Чанки по этой теме не найдены"
                 )
-
+            
+            # Генерируем вопрос с помощью LLM 
             generated_question = generate_question(
                 topic=topic,
                 materials=materials
@@ -104,6 +144,7 @@ def start_interview(request: StartInterviewRequest) -> StartInterviewResponse:
         ) from exp
 
 
+    # Сохраняем информацию сессию под уникальным ключем в хранилище
     session_id = uuid4()
     session = InterviewSession(
         topic=topic,
@@ -115,14 +156,17 @@ def start_interview(request: StartInterviewRequest) -> StartInterviewResponse:
     with sessions_lock:
         sessions[session_id] = session
 
+    # Возвращаем экземпляр класса с заполненными полями
     return StartInterviewResponse(
         status="success",
         session_id=session_id, 
         question=session.question
     )
 
+# Ручка, отвечающая за обработку ответа пользователя
 @app.post("/user_answer", response_model=UserAnswerResponse)
 def user_answer(request: UserAnswerRequest) -> UserAnswerResponse:
+    # Ответ пользователя
     answer = request.answer.strip()
     if not answer:
         raise HTTPException(
@@ -139,6 +183,7 @@ def user_answer(request: UserAnswerRequest) -> UserAnswerResponse:
         )
 
     try:
+        # Вызываем функцию валидации ответа с помощью LLM
         evaluation = validate_answer(
             question = session.question,
             user_answer = answer,
@@ -158,13 +203,21 @@ def user_answer(request: UserAnswerRequest) -> UserAnswerResponse:
             detail="Модель вернула оценку в неправильном формате"
         )
 
+    # Возвращаем экземпляр класса с заполненными полями 
     return UserAnswerResponse(
         status="success",
         evaluation=evaluation,
         reference_answer=session.reference_answer.reference_answer
     )
 
+@app.post("/final_responce", response_model = FinalResult)
+def final_answer(evaluation: EvaluationResult) -> FinalResult:
+    final_answer = final_answer(evaluation)
+    return final_answer
+
+# Точка входа
 def run_project() -> None:
+    # Задаём конфигурацию проекта
     config = uvicorn.Config(
         app=app,
         host="127.0.0.1",
@@ -173,7 +226,7 @@ def run_project() -> None:
     )
 
     server = uvicorn.Server(config=config)
-
+    
     server_thread = Thread(
         target=server.run,
         name="uvicorn_server",

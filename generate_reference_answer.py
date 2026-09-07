@@ -3,6 +3,10 @@ import ollama
 from rag import Material
 from pydantic import BaseModel, Field
 
+# Задаём класс для референсного ответа
+# Поля:
+# reference_answer - референсный ответ, генерируемый LLM
+# key_points - ключевые тезысы, которые поясняют ответ
 class ReferenceAnswer(BaseModel):
     reference_answer: str = Field(
         min_length=1,
@@ -14,7 +18,11 @@ class ReferenceAnswer(BaseModel):
         max_length=10,
         description="Краткие тезисы, которые должны пояснить ответ"
     )
-
+    
+# Функция генерации референсного ответа
+# Поля:
+# question - вопрос, сгенерированный LLM
+# materials - материалы, полученные из RAG
 def generate_reference_answer(question: str, materials: list[Material]) -> ReferenceAnswer:
     question = question.strip()
 
@@ -24,6 +32,7 @@ def generate_reference_answer(question: str, materials: list[Material]) -> Refer
     if not materials:
         raise ValueError("Релевантные чанки не найдены")
 
+    # Задаём референсную схему для ответа LLM
     reference_schema = ReferenceAnswer.model_json_schema()
 
     schema_text = json.dumps(
@@ -31,6 +40,7 @@ def generate_reference_answer(question: str, materials: list[Material]) -> Refer
         ensure_ascii=False
     )
 
+    # Запрос к LLM
     responce = ollama.chat(
         model = "qwen3.5:9b-q4_K_M",
         messages = [
@@ -64,16 +74,20 @@ def generate_reference_answer(question: str, materials: list[Material]) -> Refer
             }
         ],
         format = reference_schema,
+        # Отключаем thinking, чтобы ускорить инференс. Для этой задачи thinking-mode не нужен
         think = False,
         stream = False,
         options = {
+            # Нулевая температура так как референсный ответ должен быть практически детерменирован
             "temperature" : 0,
             "num_ctx" : 4096,
             "num_predict" : 384
         },
+        # Оставляем LLM выгруженной чтобы ускорить инференс
         keep_alive = "10m"
     )
 
+    # Возвращаем ответ LLM из responce по индексам message и content
     return ReferenceAnswer.model_validate_json(
         responce["message"]["content"]
     )

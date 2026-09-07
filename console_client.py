@@ -1,6 +1,7 @@
 import json
 import requests
 
+# Задаём базовый URL-адресс приложения
 BASE_URL = "http://127.0.0.1:8000"
 
 def run_console_client() -> None:
@@ -16,6 +17,7 @@ def run_console_client() -> None:
         timeout = (5, 600),
     )
 
+    # Обрабатываем ответ от сервера
     question_response.raise_for_status()
     question_data = question_response.json()
     session_id = question_data["session_id"]
@@ -25,6 +27,7 @@ def run_console_client() -> None:
 
     answer = input("Ваш ответ:")
 
+    # Опять дергаем ручку через пост-метод
     answer_response = requests.post(
         url=f"{BASE_URL}/user_answer",
         json={
@@ -33,7 +36,8 @@ def run_console_client() -> None:
         },
         timeout = (10, 300),
     )
-
+    
+    # Обрабатываем ответ от сервера
     answer_response.raise_for_status()
     answer_data = answer_response.json()
 

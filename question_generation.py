@@ -77,7 +77,7 @@ def generate_question(topic: str, materials: list[dict]) -> QuestionPackage:
         think=False,
         stream=False,
         options={
-            "temperature": 0.25,
+            "temperature": 0.15,
             "num_ctx": 4096,
             "num_predict": 256,
         },

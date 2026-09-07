@@ -12,6 +12,7 @@ collection = chroma_client.get_or_create_collection(
     name="course_lessons",
     configuration={
         "hnsw": {
+            # Используем ту же метрику расстояния, что и в эмбеддере, иначе может возникнуть конфликт
             "space": "cosine"
         }
     }
@@ -37,7 +38,8 @@ txt_files = [f for f in directory.glob("*.txt")]
 
 for file in txt_files:
     text = file.read_text(encoding="utf-8")
-    file_chunks = text_splitter.create_documents([text]) # file_chunks - объект типа Document, у которого есть поля page_content и metadata
+    # file_chunks - объект типа Document, у которого есть поля page_content и metadata
+    file_chunks = text_splitter.create_documents([text]) 
 
     # Извлекаем lesson_id из имени файла
     lesson_id = file.stem.split("_")[0]  
@@ -52,6 +54,7 @@ for file in txt_files:
             "chunk_index": chunk_index
         }
 
+        # Добавляем в массивы соответствующие элементы
         ids.append(chunk_id)
         documents.append(chunk.page_content)
         metadatas.append(chunk_metadata)
