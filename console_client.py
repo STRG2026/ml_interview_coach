@@ -32,15 +32,18 @@ def extract_api_error(response: requests.Response) -> str:
 
 def post_json(session: requests.Session, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
     response = session.post(
-            url=f"http://127.0.0.1:8000 {endpoint}",
-            json=payload,
-            timeout=(10, 600)
+        url=f"http://127.0.0.1:8000{endpoint}",
+        json=payload,
+        timeout=(10, 600)
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            f"API вернул ошибку {response.status_code}:\n"
+            f"{extract_api_error(response)}"
         )
 
-    response_data = response.json()
-
-    return response_data
-
+    return response.json()
 
 def run_console_client() -> None:
     try:
@@ -90,6 +93,12 @@ def run_console_client() -> None:
 
         if isinstance(reference_answer, str) and reference_answer:
             print(f"\nЭталонный ответ:\n{reference_answer}")
+
+    except RuntimeError as error:
+        print(f"\nОшибка:\n{error}")
+
+    except (KeyboardInterrupt, EOFError):
+        print("\nПользователь остановил работу консоли")
 
     except (KeyboardInterrupt, EOFError):
         print("\nПользователь остановил работу консоли")

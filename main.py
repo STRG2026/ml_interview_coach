@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from threading import Lock, Thread
 from rag import Material, search_chunks
 from fastapi import FastAPI, HTTPException
-from validate_answer import validate_answer
-from validate_answer import EvaluationResult
 from console_client import run_console_client
 from generate_feedback import generate_feedback
 from pydantic import BaseModel, Field, ValidationError
@@ -50,9 +48,10 @@ class UserAnswerResponse(BaseModel):
 @dataclass(frozen=True)
 class InterviewSession:
     topic: str
-    question: QuestionPackage
+    question_package: QuestionPackage
     materials: list[Material]
-    reference_answer: list[Material]
+    reference_answer: ReferenceAnswer
+    created_at: float
 
 sessions: dict[UUID, InterviewSession] = {}
 # Защищаем словаь сессии
@@ -194,20 +193,62 @@ def user_answer(request: UserAnswerRequest) -> UserAnswerResponse:
 
     try:
         with llm_lock:
-            evaluation = validate_answer(
-            question=session.question_package.question,
-            user_answer=answer,
-            reference_answer=session.reference_answer,
-            materials=session.materials,
-        )
+            try:
+                evaluation = validate_answer(
+                    question=session.question_package.question,
+                    user_answer=answer,
+                    reference_answer=session.reference_answer,
+                    materials=session.materials,
+                )
 
-            # На всякий случай преобразовывем результат в EvaluationResult
-            evaluation = EvaluationResult.model_validate(evaluation)
+                evaluation = EvaluationResult.model_validate(
+                    evaluation
+                )
 
-            final_feedback = generate_feedback(
-                evaluation=evaluation,
-                reference_answer=session.reference_answer
-            )
+            except ValidationError as error:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Этап оценки ответа вернул "
+                        f"невалидный JSON: {error}"
+                    ),
+                ) from error
+
+            except RuntimeError as error:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Ошибка на этапе оценки ответа: "
+                        f"{error}"
+                    ),
+                ) from error
+            
+            try:
+                final_feedback = generate_feedback(
+                    evaluation=evaluation,
+                    reference_answer=session.reference_answer,
+                )
+
+            except ValidationError as error:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Этап генерации финального feedback "
+                        f"вернул невалидный JSON: {error}"
+                    ),
+                ) from error
+
+            except RuntimeError as error:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Ошибка на этапе генерации feedback: "
+                        f"{error}"
+                    ),
+                ) from error
+
+    except HTTPException:
+        raise
 
     except ollama.ResponseError as error:
         raise HTTPException(
@@ -215,31 +256,20 @@ def user_answer(request: UserAnswerRequest) -> UserAnswerResponse:
             detail=(
                 "Ollama не смогла обработать ответ: "
                 f"{error}"
-            )
+            ),
         ) from error
 
     except ConnectionError as error:
         raise HTTPException(
             status_code=503,
             detail=(
-                "Не удалось подключиться к Ollama, введи Ollama ps"
-            )
+                "Не удалось подключиться к Ollama. "
+                "Проверь состояние командой `ollama ps`."
+            ),
         ) from error
 
-    except ValidationError as error:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Модель вернула оценку или финальный "
-                "ответ в неправильном формате"
-            )
-        ) from error
-
-    except RuntimeError as error:
-        raise HTTPException(
-            status_code=502,
-            detail=str(error)
-        ) from error
+    with sessions_lock:
+        sessions.pop(request.session_id, None)
 
     return UserAnswerResponse(
         status="success",

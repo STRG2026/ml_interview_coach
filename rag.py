@@ -1,6 +1,7 @@
 import ollama
+from typing import Any
 from pathlib import Path
-from typing import TypedDict, Any
+from pydantic import BaseModel
 from chromadb import PersistentClient
 
 
