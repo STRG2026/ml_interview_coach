@@ -95,15 +95,18 @@ def start_interview(request: StartInterviewRequest) -> StartInterviewResponse:
 
     try:
         with llm_lock:
-            materials = search_chunks(topic)
+            materials = [
+            material
+            for material in search_chunks(topic)
+            if material.distance <= 0.55
+        ]
 
             if not materials:
                 raise HTTPException(
                     status_code=404,
                     detail=(
-                        "В материалах курса не найдено "
-                        "информации по указанной теме"
-                    )
+                        "Материалы по теме не найдены, дополни RAG или проверь релевантность вопроса"
+                    ),
                 )
 
             question_package = generate_question(

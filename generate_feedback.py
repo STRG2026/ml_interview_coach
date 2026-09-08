@@ -15,9 +15,6 @@ def generate_feedback(evaluation: EvaluationResult, reference_answer: ReferenceA
     if evaluation is None:
         raise ValueError("Результат валидации не найден")
 
-    if reference_answer is None:
-        raise ValueError("Референсный ответ не найден")
-
     evaluation_json = evaluation.model_dump_json(indent=2)
     reference_answer_json = reference_answer.model_dump_json(indent=2)
 
@@ -63,6 +60,10 @@ def generate_feedback(evaluation: EvaluationResult, reference_answer: ReferenceA
 
                     "Return only the final student-facing feedback as plain text\n"
                     "Do not return JSON, field names, or Markdown code fences"
+                    "10. Never claim that the student explained an idea unless that "
+                    "idea is explicitly present in valid_takes\n"
+                    "11. Do not introduce terms or examples that are absent from the "
+                    "evaluation and reference answer\n"
                 ),
             },
             {

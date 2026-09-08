@@ -111,6 +111,9 @@ def generate_reference_answer(question: str, materials: list[Material]) -> Refer
                     "17. Do not add fields that are absent from the schema"
                     "18. Keep reference_answer concise: no more than three short paragraphs\n"
                     "19. Each key point must contain only one short sentence\n"
+                    "20. Do not use LaTeX commands or backslash characters inside JSON values\n"
+                    "Write mathematical notation as plain text using Unicode symbols, "
+                    "for example: α_i = 0, Σ, ‖w‖, xᵀy\n"
                 ),
             },
             {
@@ -128,7 +131,7 @@ def generate_reference_answer(question: str, materials: list[Material]) -> Refer
         options={
             "temperature": 0,
             "num_ctx": 4096,
-            "num_predict": 2056
+            "num_predict": 4096
         },
         keep_alive="10m"
     )

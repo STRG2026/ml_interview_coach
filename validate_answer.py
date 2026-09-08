@@ -135,6 +135,11 @@ def validate_answer(question: str, user_answer: str, reference_answer: Reference
                     "18. Return no more than four items in each list\n"
                     "19. Each list item must contain only one short sentence\n"
                     "20. Keep feedback under three short sentences"
+                    "21. Do not infer correct reasoning from a technical term alone.\n"
+                    "22. A point belongs in valid_takes only when the student both "
+                    "states it and explains it with a factually correct meaning\n"
+                    "23. If the student mentions a correct concept but assigns an "
+                    "incorrect property to it, do not count that property as valid\n"
                 )
         },
         {
